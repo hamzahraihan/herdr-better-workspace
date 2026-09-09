@@ -12,24 +12,23 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"herdr-better-workspace/internal/herdr"
 )
 
 const (
-	startMarker   = "# herdr-better-workspace: managed by `herdr-better-workspace install` — safe to delete, re-created on install."
-	endMarker     = "# herdr-better-workspace: end."
-	DefaultKey    = "prefix+space"
-	DefaultWidth  = "60%"
-	DefaultHeight = "70%"
+	startMarker = "# herdr-better-workspace: managed by `herdr-better-workspace install` — safe to delete, re-created on install."
+	endMarker   = "# herdr-better-workspace: end."
+	DefaultKey  = "prefix+space"
 )
 
 // Options configures the managed keybinding.
 type Options struct {
-	Key      string // herdr key chord, e.g. prefix+space
-	Width    string // popup width, e.g. 60%
-	Height   string // popup height, e.g. 70%
-	Exe      string // command herdr runs; "" resolves to the current binary
-	HerdrBin string // herdr binary used for config reload
-	DryRun   bool   // report without writing
+	Key           string // herdr key chord, e.g. prefix+space
+	Exe           string // plugin binary path; "" resolves to the current binary
+	HerdrBin      string // herdr binary used for link check and config reload
+	DryRun        bool   // report without writing
+	SkipLinkCheck bool   // skip the plugin-registered check (tests only)
 }
 
 // ConfigPath mirrors herdr's own resolution: $HERDR_CONFIG_PATH wins,
@@ -76,17 +75,17 @@ func resolveExe(exe string) (string, error) {
 	return filepath.ToSlash(abs), nil
 }
 
-// block renders the managed TOML stanza (trailing newline included).
-func block(o Options, exe string) string {
+// block renders the managed TOML stanza (trailing newline included). The
+// plugin_action reference is location-independent: reinstalls land in fresh
+// hash-suffixed directories, while absolute exe paths would stale.
+func block(o Options) string {
 	return strings.Join([]string{
 		startMarker,
 		"[[keys.command]]",
 		fmt.Sprintf("key = %q", o.Key),
-		`type = "popup"`,
-		fmt.Sprintf("command = %q", exe),
-		fmt.Sprintf("width = %q", o.Width),
-		fmt.Sprintf("height = %q", o.Height),
-		`description = "New workspace (interactive form)"`,
+		`type = "plugin_action"`,
+		fmt.Sprintf("command = %q", herdr.ActionRef()),
+		`description = "Open Workspace"`,
 		endMarker,
 		"",
 	}, "\n")
@@ -144,15 +143,14 @@ func Install(o Options) (changed bool, path string, err error) {
 	if err := checkField("key", o.Key); err != nil {
 		return false, "", err
 	}
-	if err := checkField("width", o.Width); err != nil {
-		return false, "", err
-	}
-	if err := checkField("height", o.Height); err != nil {
-		return false, "", err
-	}
 	exe, err := resolveExe(o.Exe)
 	if err != nil {
 		return false, "", err
+	}
+	if !o.DryRun && !o.SkipLinkCheck {
+		if err := EnsureLinked(context.Background(), o.HerdrBin, exe); err != nil {
+			return false, "", err
+		}
 	}
 	path, err = ConfigPath()
 	if err != nil {
@@ -171,7 +169,7 @@ func Install(o Options) (changed bool, path string, err error) {
 			content += "\n"
 		}
 	}
-	stitched := block(o, exe)
+	stitched := block(o)
 	lines := strings.Split(content, "\n")
 	var next string
 	if s, e, ok, _ := span(content); ok {
@@ -357,4 +355,26 @@ func findKeyBlock(lines []string, key string) (s, e int, ours, other bool) {
 		return b[0], b[1], false, true
 	}
 	return 0, 0, false, false
+}
+
+// EnsureLinked registers the plugin from the checkout holding exePath when
+// herdr doesn't list it yet, so the plugin_action binding is never dead.
+// exePath must be the plugin binary itself (its directory holds
+// herdr-plugin.toml).
+func EnsureLinked(ctx context.Context, herdrBin, exePath string) error {
+	registered, err := herdr.Registered(ctx, herdrBin)
+	if err != nil {
+		return err
+	}
+	if registered {
+		return nil
+	}
+	root := filepath.Dir(exePath)
+	if _, err := os.Stat(filepath.Join(root, "herdr-plugin.toml")); err != nil {
+		return fmt.Errorf("plugin %q is not registered — run `herdr plugin link <repo-checkout>` first", herdr.PluginID)
+	}
+	if _, err := herdr.Exec(ctx, herdrBin, "plugin", "link", root); err != nil {
+		return fmt.Errorf("herdr plugin link %s: %w", root, err)
+	}
+	return nil
 }
