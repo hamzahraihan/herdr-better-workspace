@@ -137,3 +137,39 @@ func TestUninstallMissingFile(t *testing.T) {
 		t.Fatalf("removed=%v err=%v", removed, err)
 	}
 }
+
+func TestInstallAdoptsLegacyBlock(t *testing.T) {
+	legacy := "[ui]\n\n# herdr-better-workspace: interactive workspace creator.\n[[keys.command]]\nkey = \"prefix+space\"\ntype = \"popup\"\ncommand = \"C:/old/path.exe\"\nwidth = \"90%\"\nheight = \"90%\"\ndescription = \"New workspace (interactive form)\"\n"
+	path := withConfig(t, legacy)
+	opts := Options{Key: DefaultKey, Width: DefaultWidth, Height: DefaultHeight, Exe: "/bin/hbw"}
+	changed, _, err := Install(opts)
+	if err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	if !changed {
+		t.Fatal("legacy block should be adopted")
+	}
+	raw, _ := os.ReadFile(path)
+	content := string(raw)
+	if strings.Contains(content, "C:/old/path.exe") {
+		t.Fatalf("legacy command survived:\n%s", content)
+	}
+	if n := countManaged(t, path); n != 1 {
+		t.Fatalf("managed blocks = %d, want 1", n)
+	}
+	// Converges afterwards.
+	if changed, _, err := Install(opts); err != nil || changed {
+		t.Fatalf("changed=%v err=%v, want no-op", changed, err)
+	}
+}
+
+func TestInstallRefusesForeignKey(t *testing.T) {
+	foreign := "[[keys.command]]\nkey = \"prefix+space\"\ntype = \"plugin_action\"\ncommand = \"someone-else.action\"\n"
+	withConfig(t, foreign)
+	opts := Options{Key: DefaultKey, Width: DefaultWidth, Height: DefaultHeight, Exe: "/bin/hbw"}
+	if _, _, err := Install(opts); err == nil {
+		t.Fatal("expected key-conflict error")
+	} else if !strings.Contains(err.Error(), "--key") {
+		t.Fatalf("error should suggest --key: %v", err)
+	}
+}
