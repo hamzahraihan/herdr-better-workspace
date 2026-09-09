@@ -24,7 +24,7 @@ func usage() {
 	fmt.Fprintf(os.Stderr, `herdr-better-workspace v%s — interactive herdr workspace creator
 
 Usage:
-  herdr-better-workspace install [--key <chord>] [--width <pct>] [--height <pct>] [--dry-run]
+  herdr-better-workspace install [--key <chord>] [--width <pct>] [--height <pct>] [--dry-run] [--auto]
                                           register the herdr keybinding (default: prefix+space)
   herdr-better-workspace uninstall       remove the herdr keybinding
   herdr-better-workspace [--cwd <start-dir>] [--dry-run]
@@ -147,6 +147,7 @@ func runSetupCmd(cmd string, args []string, herdrBin string) int {
 	width := fs.String("width", install.DefaultWidth, "popup width")
 	height := fs.String("height", install.DefaultHeight, "popup height")
 	dry := fs.Bool("dry-run", false, "report without writing")
+	auto := fs.Bool("auto", false, "quiet setup for plugin build/startup hooks (warn instead of failing)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -177,8 +178,18 @@ func runSetupCmd(cmd string, args []string, herdrBin string) int {
 		Key: *key, Width: *width, Height: *height, HerdrBin: herdrBin, DryRun: *dry,
 	})
 	if err != nil {
+		if *auto {
+			fmt.Fprintf(os.Stderr, "warning: herdr-better-workspace install: %v\n", err)
+			return 0
+		}
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 1
+	}
+	if *auto {
+		if _, err := install.Reload(context.Background(), herdrBin); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: herdr-better-workspace install: %v\n", err)
+		}
+		return 0
 	}
 	if *dry {
 		if changed {
