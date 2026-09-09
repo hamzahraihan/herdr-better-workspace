@@ -50,7 +50,28 @@ so it works with any installed herdr server.
 
 ## Installation
 
-### 1. Build the binary
+### Recommended: herdr plugin install
+
+This repo ships a `herdr-plugin.toml` manifest, so herdr installs, builds,
+and wires it up conventionally. The build compiles the picker binary and
+the startup hook registers the `prefix+space` popup binding (self-healing
+on every launch):
+
+```powershell
+herdr plugin install hamzahraihan/herdr-better-workspace
+herdr plugin list   # confirm "herdr-better-workspace ... enabled"
+```
+
+For local development, link the checkout instead (same build + binding flow):
+
+```powershell
+herdr plugin link C:/herdr-plugins-project/herdr-better-workspace
+```
+
+Press `<prefix>` then `Space` inside herdr: the picker opens as a modal.
+Requires Go 1.24+ (the install build step compiles from source).
+
+### Manual: build the binary
 
 ```powershell
 git clone <this-repo>
