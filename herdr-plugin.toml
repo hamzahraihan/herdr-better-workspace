@@ -8,10 +8,10 @@
 # - `build` compiles the picker binary into the plugin root (Go appends
 #   .exe automatically when the target is Windows).
 # - `startup` re-runs the keybinding installer on every herdr start, so the
-#   popup binding self-heals if the user edits it away. It is quiet and
-#   never fails the startup (warns instead).
-# - No `[[actions]]`: actions execute headless (no TTY), while the picker
-#   is a fullscreen mouse TUI. The popup keybinding below is its surface.
+#   binding self-heals if the user edits it away. It is quiet and never
+#   fails the startup (warns instead).
+# - No TTY in actions: the action only opens the overlay pane; the
+#   fullscreen mouse TUI runs there.
 
 id = "herdr-better-workspace"
 name = "Better Workspace"
@@ -28,3 +28,19 @@ command = ["./herdr-better-workspace", "install", "--auto"]
 
 [[startup]]
 command = ["./herdr-better-workspace", "install", "--auto"]
+
+# The picker is a fullscreen mouse TUI, and actions execute headless — so
+# the action only opens the overlay pane below and exits. The popup-style
+# keybinding (managed by `install`) targets this action, keeping the
+# reference location-independent across reinstalls.
+[[actions]]
+id = "open-workspace-picker"
+title = "Open Workspace"
+contexts = ["workspace"]
+command = ["./herdr-better-workspace", "open-picker"]
+
+[[panes]]
+id = "workspace-picker"
+title = "Open Workspace"
+placement = "overlay"
+command = ["./herdr-better-workspace"]
