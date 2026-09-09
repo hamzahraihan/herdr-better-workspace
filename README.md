@@ -104,11 +104,12 @@ updates the block, never duplicates it:
 .\herdr-better-workspace.exe install
 ```
 
-This binds `prefix+space` to a 60% × 70% popup and hot-reloads the running
-herdr server. Customize with flags:
+This binds `prefix+space` to the plugin action (location-independent, so
+reinstalls never stale it) and hot-reloads the running herdr server.
+Customize with flags:
 
 ```powershell
-.\herdr-better-workspace.exe install --key prefix+alt+n --width 70% --height 80%
+.\herdr-better-workspace.exe install --key prefix+alt+n
 .\herdr-better-workspace.exe install --dry-run   # preview without writing
 .\herdr-better-workspace.exe uninstall           # remove the block again
 ```
