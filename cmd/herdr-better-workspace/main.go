@@ -14,6 +14,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"herdr-better-workspace/internal/herdr"
+	"herdr-better-workspace/internal/install"
 	"herdr-better-workspace/internal/ui"
 )
 
@@ -23,11 +24,13 @@ func usage() {
 	fmt.Fprintf(os.Stderr, `herdr-better-workspace v%s — interactive herdr workspace creator
 
 Usage:
+  herdr-better-workspace install [--key <chord>] [--width <pct>] [--height <pct>] [--dry-run]
+                                          register the herdr keybinding (default: prefix+space)
+  herdr-better-workspace uninstall       remove the herdr keybinding
   herdr-better-workspace [--cwd <start-dir>] [--dry-run]
                                           browse-and-pick TUI (default)
   herdr-better-workspace --name <label> --cwd <path> [--template <id>]
       [--git/--no-git] [--focus/--no-focus] [--dry-run]
-
 Flags:
   --name string       workspace label (with --cwd: non-interactive create)
   --cwd string        non-interactive target dir, or TUI start dir when
@@ -82,10 +85,15 @@ func main() {
 		usage()
 		return
 	}
-	if extra := flag.Args(); len(extra) > 0 {
-		fmt.Fprintf(os.Stderr, "unexpected argument: %s\n\n", strings.Join(extra, " "))
-		usage()
-		os.Exit(2)
+	if args := flag.Args(); len(args) > 0 {
+		switch args[0] {
+		case "install", "uninstall":
+			os.Exit(runSetupCmd(args[0], args[1:], *herdrBin))
+		default:
+			fmt.Fprintf(os.Stderr, "unexpected argument: %s\n\n", strings.Join(args, " "))
+			usage()
+			os.Exit(2)
+		}
 	}
 
 	initGit := *gitOn && !*gitOff
@@ -128,4 +136,67 @@ func main() {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+// runSetupCmd implements `install` (register the herdr keybinding from the
+// running binary's own path) and `uninstall` (remove it). Reload failures
+// only warn: the binding still applies on next herdr launch.
+func runSetupCmd(cmd string, args []string, herdrBin string) int {
+	fs := flag.NewFlagSet(cmd, flag.ContinueOnError)
+	key := fs.String("key", install.DefaultKey, "herdr key chord for the popup")
+	width := fs.String("width", install.DefaultWidth, "popup width")
+	height := fs.String("height", install.DefaultHeight, "popup height")
+	dry := fs.Bool("dry-run", false, "report without writing")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if fs.NArg() > 0 {
+		fmt.Fprintf(os.Stderr, "unexpected argument: %s\n\n", strings.Join(fs.Args(), " "))
+		usage()
+		return 2
+	}
+	if cmd == "uninstall" {
+		removed, path, err := install.Uninstall()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			return 1
+		}
+		if !removed {
+			fmt.Printf("no managed keybinding in %s (nothing to do)\n", path)
+			return 0
+		}
+		fmt.Printf("removed keybinding from %s\n", path)
+		if out, err := install.Reload(context.Background(), herdrBin); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: config reloaded on next launch (%v)\n", err)
+		} else if out != "" {
+			fmt.Printf("herdr: %s\n", out)
+		}
+		return 0
+	}
+	changed, path, err := install.Install(install.Options{
+		Key: *key, Width: *width, Height: *height, HerdrBin: herdrBin, DryRun: *dry,
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
+	if *dry {
+		if changed {
+			fmt.Printf("would register [%s] in %s\n", *key, path)
+		} else {
+			fmt.Printf("already registered in %s\n", path)
+		}
+		return 0
+	}
+	if changed {
+		fmt.Printf("registered [%s] popup in %s (backup: %s.bak)\n", *key, path, path)
+	} else {
+		fmt.Printf("already registered in %s\n", path)
+	}
+	if _, err := install.Reload(context.Background(), herdrBin); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: keybinding applies on next herdr launch (%v)\n", err)
+	} else {
+		fmt.Println("herdr config reloaded — press your key to open the picker")
+	}
+	return 0
 }
