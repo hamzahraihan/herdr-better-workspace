@@ -72,29 +72,31 @@ Either copy it next to `herdr.exe` (`%LOCALAPPDATA%\Programs\Herdr\bin`),
 or keep it in your project folder (it resolves by absolute path in the
 keybinding below).
 
-### 3. Bind it inside herdr
+### 3. Register the keybinding (automatic)
 
-herdr has no plugin manifest — a "plugin" is any executable, optionally bound
-to a key. Add this to your herdr `config.toml`
-(`%APPDATA%\herdr\config.toml`, or wherever `$HERDR_CONFIG_PATH` points):
-
-```toml
-[[keys.command]]
-key = "prefix+space"
-type = "popup"
-command = "C:/herdr-plugins-project/herdr-better-workspace/herdr-better-workspace.exe"
-width = "60%"
-height = "70%"
-description = "New workspace (interactive form)"
-```
-
-Then apply without restarting:
+Run the plugin's installer — it appends a managed `[[keys.command]]` block
+to your herdr `config.toml` (backing it up as `config.toml.bak`), using the
+binary's own path so it works regardless of `PATH`. Re-running it only
+updates the block, never duplicates it:
 
 ```powershell
-herdr server reload-config
+.\herdr-better-workspace.exe install
 ```
 
-Pick any key (`prefix+alt+n`, …) and any popup size — the UI reflows to fit.
+This binds `prefix+space` to a 60% × 70% popup and hot-reloads the running
+herdr server. Customize with flags:
+
+```powershell
+.\herdr-better-workspace.exe install --key prefix+alt+n --width 70% --height 80%
+.\herdr-better-workspace.exe install --dry-run   # preview without writing
+.\herdr-better-workspace.exe uninstall           # remove the block again
+```
+
+Manual alternative: herdr has no plugin manifest — a "plugin" is any
+executable, optionally bound to a key. Copy the block from
+`.\herdr-better-workspace.exe --help` into `%APPDATA%\herdr\config.toml`
+(or wherever `$HERDR_CONFIG_PATH` points), then run
+`herdr server reload-config`.
 
 ### 4. Verify
 
