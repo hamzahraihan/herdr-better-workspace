@@ -70,17 +70,80 @@ func runHerdr(ctx context.Context, herdrBin string, timeout time.Duration, args 
 	return strings.TrimSpace(buf.String()), nil
 }
 
-// OpenPickerPane opens the picker overlay on the active pane and focuses it.
-// Overlay placement targets the active pane by herdr semantics, so no
-// workspace argument is passed.
-func OpenPickerPane(ctx context.Context, herdrBin string) (string, error) {
-	return runHerdr(ctx, herdrBin, 30*time.Second,
+// parsePaneCurrentCwd extracts .result.pane.cwd from `herdr pane current`
+// output. Split out for testability; the CLI wraps the pane object in a
+// result envelope ({"result":{"pane":{"cwd":"..."},"type":"pane_current"}}).
+func parsePaneCurrentCwd(out string) (string, error) {
+	var doc struct {
+		Result struct {
+			Pane struct {
+				Cwd string `json:"cwd"`
+			} `json:"pane"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(out), &doc); err != nil {
+		return "", fmt.Errorf("parse pane current output: %w", err)
+	}
+	if cwd := strings.TrimSpace(doc.Result.Pane.Cwd); cwd != "" {
+		return cwd, nil
+	}
+	return "", fmt.Errorf("pane current output missing .result.pane.cwd")
+}
+
+// ActivePaneCwd reports the focused pane's working directory — i.e. the
+// current workspace location the picker should start in. It must run before
+// the picker overlay takes focus; afterwards `pane current` would report the
+// picker pane itself.
+func ActivePaneCwd(ctx context.Context, herdrBin string) (string, error) {
+	out, err := runHerdr(ctx, herdrBin, 10*time.Second, "pane", "current")
+	if err != nil {
+		return "", err
+	}
+	return parsePaneCurrentCwd(out)
+}
+
+// pickerPaneArgs builds the `herdr plugin pane open` argv. originCwd seeds
+// the overlay process working directory so the picker's default path starts
+// at the current workspace location; empty skips --cwd (prior behavior).
+func pickerPaneArgs(originCwd string) []string {
+	args := []string{
 		"plugin", "pane", "open",
 		"--plugin", PluginID,
 		"--entrypoint", PanePicker,
 		"--placement", "overlay",
 		"--focus",
-	)
+	}
+	if cwd := strings.TrimSpace(originCwd); cwd != "" {
+		if info, err := os.Stat(cwd); err == nil && info.IsDir() {
+			args = append(args, "--cwd", cwd)
+		}
+	}
+	return args
+}
+
+// OpenPickerPane opens the picker overlay on the active pane and focuses it.
+// Overlay placement targets the active pane by herdr semantics, so no
+// workspace argument is passed. The active pane's cwd is captured first and
+// passed as the overlay's working directory, so the picker starts at the
+// current workspace location instead of the plugin host directory. Cwd
+// detection never fails the open: on any error it falls back to the
+// previous behavior (no --cwd, picker falls back to its own Getwd).
+func OpenPickerPane(ctx context.Context, herdrBin string) (string, error) {
+	var originCwd string
+	if cwd, err := ActivePaneCwd(ctx, herdrBin); err == nil {
+		originCwd = cwd
+	}
+	args := pickerPaneArgs(originCwd)
+	withCwd := len(args) > len(pickerPaneArgs(""))
+	out, err := runHerdr(ctx, herdrBin, 30*time.Second, args...)
+	if err != nil && withCwd {
+		msg := strings.ToLower(err.Error())
+		if strings.Contains(msg, "unknown") || strings.Contains(msg, "unexpected") ||
+			strings.Contains(msg, "flag") || strings.Contains(msg, "--cwd") {
+			return runHerdr(ctx, herdrBin, 30*time.Second, pickerPaneArgs("")...)
+		}
+	}
+	return out, err
 }
 
 // Exec runs an arbitrary herdr command (install tooling uses it for
