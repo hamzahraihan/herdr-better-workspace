@@ -178,6 +178,10 @@ func Install(o Options) (changed bool, path string, err error) {
 		next = splice(lines, s, e, stitched)
 	} else if strings.TrimSpace(content) == "" {
 		next = stitched
+	} else if s, e, ours, other := findKeyBlock(lines, o.Key); ours {
+		next = splice(lines, s, e, stitched)
+	} else if other {
+		return false, path, fmt.Errorf("key %q is already bound by another entry in %s — pick a free chord with --key", o.Key, path)
 	} else {
 		next = content + "\n" + stitched
 	}
@@ -238,9 +242,14 @@ func Uninstall() (removed bool, path string, err error) {
 func Reload(ctx context.Context, herdrBin string) (string, error) {
 	bin := strings.TrimSpace(herdrBin)
 	if bin == "" {
-		if v := strings.TrimSpace(os.Getenv("HERDR_BIN")); v != "" {
-			bin = v
-		} else {
+		// HERDR_BIN_PATH is what herdr itself directs plugins at.
+		for _, env := range []string{"HERDR_BIN_PATH", "HERDR_BIN"} {
+			if v := strings.TrimSpace(os.Getenv(env)); v != "" {
+				bin = v
+				break
+			}
+		}
+		if bin == "" {
 			bin = "herdr"
 		}
 	}
@@ -255,4 +264,97 @@ func Reload(ctx context.Context, herdrBin string) (string, error) {
 	cmd := exec.CommandContext(ctx, bin, "server", "reload-config")
 	out, err := cmd.CombinedOutput()
 	return strings.TrimSpace(string(out)), err
+}
+
+// commandBlocks returns [start,end] line spans of each uncommented
+// [[keys.command]] block in lines.
+func commandBlocks(lines []string) [][2]int {
+	var out [][2]int
+	start := -1
+	for i, l := range lines {
+		t := strings.TrimSpace(l)
+		if strings.HasPrefix(t, "#") {
+			continue
+		}
+		if t == "[[keys.command]]" {
+			if start >= 0 {
+				out = append(out, [2]int{start, i - 1})
+			}
+			start = i
+			continue
+		}
+		if start >= 0 && strings.HasPrefix(t, "[[") && strings.HasSuffix(t, "]]") {
+			out = append(out, [2]int{start, i - 1})
+			start = -1
+		}
+	}
+	if start >= 0 {
+		out = append(out, [2]int{start, len(lines) - 1})
+	}
+	return out
+}
+
+// blockBindsKey reports whether the block's key line binds key.
+// The key value is pre-validated (no quotes/newlines), so plain
+// quoted matching is exact.
+func blockBindsKey(lines []string, s, e int, key string) bool {
+	for _, q := range []string{`"` + key + `"`, `'` + key + `'`} {
+		for _, l := range lines[s : e+1] {
+			t := strings.TrimSpace(l)
+			if strings.HasPrefix(t, "#") {
+				continue
+			}
+			r, ok := strings.CutPrefix(t, "key")
+			if !ok {
+				continue
+			}
+			r = strings.TrimSpace(r)
+			if !strings.HasPrefix(r, "=") {
+				continue
+			}
+			if strings.Contains(r[1:], q) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// markerZone reports whether the comment lines directly above the block
+// mention this plugin — install markers live there, outside the stanza.
+func markerZone(lines []string, s int) bool {
+	for i := s - 1; i >= 0; i-- {
+		t := strings.TrimSpace(lines[i])
+		if t == "" {
+			continue
+		}
+		if !strings.HasPrefix(t, "#") {
+			return false
+		}
+		if strings.Contains(t, "herdr-better-workspace") {
+			return true
+		}
+	}
+	return false
+}
+
+// findKeyBlock locates a [[keys.command]] block binding key. ours is true
+// when that block already references this plugin (a legacy install to
+// adopt); other is true when the chord belongs to something else.
+func findKeyBlock(lines []string, key string) (s, e int, ours, other bool) {
+	for _, b := range commandBlocks(lines) {
+		if !blockBindsKey(lines, b[0], b[1], key) {
+			continue
+		}
+		for _, l := range lines[b[0] : b[1]+1] {
+			if strings.Contains(l, "herdr-better-workspace") {
+				return b[0], b[1], true, false
+			}
+		}
+		if markerZone(lines, b[0]) {
+			return b[0], b[1], true, false
+		}
+		return b[0], b[1], false, true
+	}
+	return 0, 0, false, false
 }
