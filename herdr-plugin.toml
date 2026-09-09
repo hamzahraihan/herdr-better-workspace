@@ -1,0 +1,30 @@
+# herdr-better-workspace — herdr plugin manifest.
+#
+# Conventional install / local link:
+#   herdr plugin install hamzahraihan/herdr-better-workspace
+#   herdr plugin link /path/to/herdr-better-workspace
+#
+# Layout notes:
+# - `build` compiles the picker binary into the plugin root (Go appends
+#   .exe automatically when the target is Windows).
+# - `startup` re-runs the keybinding installer on every herdr start, so the
+#   popup binding self-heals if the user edits it away. It is quiet and
+#   never fails the startup (warns instead).
+# - No `[[actions]]`: actions execute headless (no TTY), while the picker
+#   is a fullscreen mouse TUI. The popup keybinding below is its surface.
+
+id = "herdr-better-workspace"
+name = "Better Workspace"
+version = "0.1.0"
+min_herdr_version = "0.8.0"
+description = "Interactive Open Workspace folder picker: browse, point, and open any directory as a herdr workspace."
+platforms = ["linux", "macos", "windows"]
+
+[[build]]
+command = ["go", "build", "-o", "herdr-better-workspace", "./cmd/herdr-better-workspace"]
+
+[[build]]
+command = ["./herdr-better-workspace", "install", "--auto"]
+
+[[startup]]
+command = ["./herdr-better-workspace", "install", "--auto"]
