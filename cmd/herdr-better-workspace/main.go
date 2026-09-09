@@ -24,7 +24,7 @@ func usage() {
 	fmt.Fprintf(os.Stderr, `herdr-better-workspace v%s — interactive herdr workspace creator
 
 Usage:
-  herdr-better-workspace install [--key <chord>] [--width <pct>] [--height <pct>] [--dry-run] [--auto]
+  herdr-better-workspace install [--key <chord>] [--dry-run] [--auto]
                                           register the herdr keybinding (default: prefix+space)
   herdr-better-workspace uninstall       remove the herdr keybinding
   herdr-better-workspace [--cwd <start-dir>] [--dry-run]
@@ -52,10 +52,9 @@ Examples:
 
   [[keys.command]]
   key = "prefix+space"
-  type = "popup"
-  command = "herdr-better-workspace"
-  width = "60%%"
-  height = "70%%"
+  type = "plugin_action"
+  command = "herdr-better-workspace.open-workspace-picker"
+  description = "Open Workspace"
 `, version)
 }
 
@@ -89,6 +88,8 @@ func main() {
 		switch args[0] {
 		case "install", "uninstall":
 			os.Exit(runSetupCmd(args[0], args[1:], *herdrBin))
+		case "open-picker":
+			os.Exit(runOpenPicker(args[1:], *herdrBin))
 		default:
 			fmt.Fprintf(os.Stderr, "unexpected argument: %s\n\n", strings.Join(args, " "))
 			usage()
@@ -144,8 +145,6 @@ func main() {
 func runSetupCmd(cmd string, args []string, herdrBin string) int {
 	fs := flag.NewFlagSet(cmd, flag.ContinueOnError)
 	key := fs.String("key", install.DefaultKey, "herdr key chord for the popup")
-	width := fs.String("width", install.DefaultWidth, "popup width")
-	height := fs.String("height", install.DefaultHeight, "popup height")
 	dry := fs.Bool("dry-run", false, "report without writing")
 	auto := fs.Bool("auto", false, "quiet setup for plugin build/startup hooks (warn instead of failing)")
 	if err := fs.Parse(args); err != nil {
@@ -175,7 +174,7 @@ func runSetupCmd(cmd string, args []string, herdrBin string) int {
 		return 0
 	}
 	changed, path, err := install.Install(install.Options{
-		Key: *key, Width: *width, Height: *height, HerdrBin: herdrBin, DryRun: *dry,
+		Key: *key, HerdrBin: herdrBin, DryRun: *dry,
 	})
 	if err != nil {
 		if *auto {
@@ -200,7 +199,7 @@ func runSetupCmd(cmd string, args []string, herdrBin string) int {
 		return 0
 	}
 	if changed {
-		fmt.Printf("registered [%s] popup in %s (backup: %s.bak)\n", *key, path, path)
+		fmt.Printf("registered [%s] keybinding in %s (backup: %s.bak)\n", *key, path, path)
 	} else {
 		fmt.Printf("already registered in %s\n", path)
 	}
@@ -208,6 +207,29 @@ func runSetupCmd(cmd string, args []string, herdrBin string) int {
 		fmt.Fprintf(os.Stderr, "warning: keybinding applies on next herdr launch (%v)\n", err)
 	} else {
 		fmt.Println("herdr config reloaded — press your key to open the picker")
+	}
+	return 0
+}
+
+// runOpenPicker is the headless entry point herdr invokes as the
+// open-workspace-picker action: it opens the picker overlay on the active
+// pane and exits. No TUI runs here — actions execute without a TTY.
+func runOpenPicker(args []string, herdrBin string) int {
+	fs := flag.NewFlagSet("open-picker", flag.ContinueOnError)
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if fs.NArg() > 0 {
+		fmt.Fprintf(os.Stderr, "unexpected argument: %s\n\n", strings.Join(fs.Args(), " "))
+		return 2
+	}
+	out, err := herdr.OpenPickerPane(context.Background(), herdrBin)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
+	if out != "" {
+		fmt.Println(out)
 	}
 	return 0
 }
